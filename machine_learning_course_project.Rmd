@@ -1,0 +1,154 @@
+---
+title: "Machine_Learning_Course_Project"
+author: "Trevor Harris"
+date: "June 18, 2016"
+output: html_document
+---
+
+## Summary
+
+The goal of this project is to predict the manner in which the Human Activity Recognition study was performed; specifically, how those performing the study predicted  'classe' variable was predicted.
+
+We will build a model that accurately predicts the study's results, then inspect that model to figure out which covariates were likely used as predictors in the study. 
+
+## Data Collection
+
+The HAR dataset (http://groupware.les.inf.puc-rio.br/har) was provided to students by Coursera via the Johns Hopkins Machine Learning class.  The data was collected by the Pontifical Catholic University of Rio de Janeiro in 2012.
+
+For further information about the data set, please reference:
+
+_Ugulino, W.; Cardador, D.; Vega, K.; Velloso, E.; Milidiu, R.; Fuks, H. Wearable Computing: Accelerometers' Data Classification of Body Postures and Movements. Proceedings of 21st Brazilian Symposium on Artificial Intelligence. Advances in Artificial Intelligence - SBIA 2012. In: Lecture Notes in Computer Science. , pp. 52-61. Curitiba, PR: Springer Berlin / Heidelberg, 2012. ISBN 978-3-642-34458-9. DOI: 10.1007/978-3-642-34459-6_6._ 
+
+## Data Ingestion
+
+We'll train and test our model using the pml-training.csv data before applying it to the pml-testing.csv data.
+
+```{r, echo = TRUE, warning = FALSE, message = FALSE}
+library(caret)
+library(RANN)
+
+setwd("C:/THARRIS/Coursera/Machine Learning/Project")
+
+build  = read.csv("./data/pml-training.csv", na.strings=c("","NA"))
+validation  = read.csv("./data/pml-testing.csv", na.strings=c("","NA"))
+```
+
+## PreProcessing
+
+First, we'll start by subsetting our build data into a training set and a test set.
+
+```{r, echo = TRUE}
+inTrain = createDataPartition(build$classe, p = 0.7)[[1]]
+training = build[inTrain,]
+testing = build[-inTrain,]
+training$classe <- factor(training$classe)
+```
+
+We'll then inspect the data to make sure all of the variables are good candidates for the model.  Note that in the spirit of keeping this write-up short, we're only displaying the first 20 variables.
+
+```{r, echo = TRUE}
+str(training, list.len = 20)
+```
+
+```{r, echo = TRUE}
+dim(training)
+```
+
+### Unimportant Data Points
+
+It looks like there are many variables that are not likely to be useful to the model, such row numbers, names, and timestamps.  We'll start by removing those variables from both build sets.
+
+```{r, echo = TRUE}
+training <- training[,-c(1:7)]
+testing <- testing[,-c(1:7)]
+```
+
+### NAs
+
+There are also many variables that are missing the majority of their data points (contain many NAs).  Below is an example showing the prevelance of NAs in a variable:
+
+```{r, echo = TRUE}
+sum(is.na(training$max_roll_belt))/nrow(training)
+```
+
+We have a few options at our disposal when treating NAs: 
+
+1. We can inmpute the data.
+2. We can drop the variables that have null values.
+3. We can drop the observations that have null values.
+
+Since the variables that contain null values are 98% null, we should probably not impute the missing data points.  Instead, we'll ignore (exclude) variables that contain NAs for the majority of their data points. 
+
+```{r, echo = TRUE}
+training <- training[,colSums(is.na(training)) < ncol(training)/2]
+testing <- testing[,colSums(is.na(testing)) < ncol(testing)/2]
+```
+
+### Tidy Data Set
+
+We now have 53 covariate candidates, down from 160.
+
+```{r, echo = TRUE}
+dim(training)
+```
+
+## Model Creation
+
+Since high accuracy is needed to carry out this exercise, we will leverage the Random Forest model to predict the 'classe' outcome.
+
+```{r, echo = TRUE, cache = TRUE, message = FALSE, warning = FALSE}
+set.seed(1000)
+model_randomforest <- train(classe ~ ., data = training , method = "rf", prox = TRUE)
+```
+
+### Predicted Accuracy
+
+We'll quickly inspect the model to get a feel for its accuracy.
+
+```{r, echo = TRUE, cache = TRUE}
+print(model_randomforest$finalModel)
+```
+
+```{r, echo = TRUE, cache = TRUE, width = 3, height = 3}
+plot(model_randomforest)
+```
+
+It looks like we should expect an accuracy somewhere between 98 and 99% when predicting outcomes on out of sample data.
+
+### Model Covariates
+
+We should also try to understand which covariates influenced the model.  We'll use the varImpPlot function to do that.
+
+```{r, echo = TRUE, cache = TRUE, length = 3, height = 3}
+varImpPlot(model_randomforest$finalModel)
+```
+
+It looks like 7 covariates dominate the model, with one in particular being esspecially important.
+
+## Cross Validation and Out of Sample Error Rate
+
+Now we'll apply the model to our test set to see how well it predicts the outcome.
+
+```{r, echo = TRUE, cache = TRUE}
+predict_randomforest <- predict(model_randomforest, newdata = testing)
+confusionMatrix(predict_randomforest, testing$classe)
+```
+
+The results look promising with a 99% accuracy.
+
+## Conclusion
+
+Given the high accuracy of our Random Forest model, we can be reasonable sure that the PCU team predicted the 'classe' output using the following covariates at a minimum:
+
+```{r, echo = TRUE, warning = FALSE, message = FALSE}
+varImp(model_randomforest)
+```
+
+## Prediction Quiz
+
+As a final step, we'll apply our Random Forest model against the original validation set (pml-testing.csv) to complete the quiz.
+
+```{r, echo = TRUE}
+predict_quiz <- predict(model_randomforest, newdata = validation)
+print(predict_quiz)
+```
